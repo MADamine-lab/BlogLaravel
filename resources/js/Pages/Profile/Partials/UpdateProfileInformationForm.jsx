@@ -10,7 +10,13 @@ export default function UpdateProfileInformation({
     status,
     className = '',
 }) {
-    const user = usePage().props.auth.user;
+    const page = usePage();
+    const user = page.props.auth?.user;
+
+    // If user is not loaded yet, show loading state
+    if (!user) {
+        return <div className={className}>Loading...</div>;
+    }
 
     const { data, setData, patch, errors, processing, recentlySuccessful } =
         useForm({

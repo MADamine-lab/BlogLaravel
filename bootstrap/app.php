@@ -12,11 +12,13 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->web(append: [
+            \App\Http\Middleware\HandleInertiaRequests::class,
             // Custom web middleware here if needed
         ]);
         
         $middleware->alias([
             'admin' => \App\Http\Middleware\AdminMiddleware::class,
+            'guest' => \App\Http\Middleware\RedirectIfAuthenticated::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

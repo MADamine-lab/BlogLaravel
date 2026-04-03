@@ -24,6 +24,10 @@ class User extends Authenticatable
         'password',
         'face_descriptor',
         'is_admin',
+        'status',
+        'suspension_reason',
+        'approved_at',
+        'suspended_at',
     ];
 
     /**
@@ -35,6 +39,8 @@ class User extends Authenticatable
         'password',
         'remember_token',
         'face_descriptor',
+        'approved_at' => 'datetime',
+        'suspended_at' => 'datetime',
     ];
 
     /**
@@ -51,6 +57,50 @@ class User extends Authenticatable
             'face_descriptor'   => 'array',
         ];
     }
+    // Check if user is approved
+    public function isApproved(): bool
+    {
+        return $this->status === 'active';
+    }
+
+    // Check if user is pending
+    public function isPending(): bool
+    {
+        return $this->status === 'pending';
+    }
+
+    // Check if user is suspended
+    public function isSuspended(): bool
+    {
+        return $this->status === 'suspended';
+    }
+
+    // Approve user
+    public function approve(): void
+    {
+        $this->status = 'active';
+        $this->approved_at = now();
+        $this->save();
+    }
+
+    // Suspend user
+    public function suspend(string $reason = null): void
+    {
+        $this->status = 'suspended';
+        $this->suspension_reason = $reason;
+        $this->suspended_at = now();
+        $this->save();
+    }
+
+    // Reactivate user
+    public function reactivate(): void
+    {
+        $this->status = 'active';
+        $this->suspension_reason = null;
+        $this->suspended_at = null;
+        $this->save();
+    }
+    
     public function posts()
     {
         return $this->hasMany(Post::class);

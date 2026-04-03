@@ -24,14 +24,33 @@ class AuthenticatedSessionController extends Controller
     public function store(LoginRequest $request): RedirectResponse
     {
         $request->authenticate();
+            
+        $user = Auth::user();
+         
+        // Check user status
+        if ($user->isPending()) {
+            Auth::logout();
+            return redirect()->route('login')->withErrors([
+                'email' => 'Your account is pending approval. You will receive an email once your account is approved.',
+            ]);
+        }
+        
+        if ($user->isSuspended()) {
+            Auth::logout();
+            return redirect()->route('login')->withErrors([
+                'email' => 'Your account has been suspended. ' . ($user->suspension_reason ? "Reason: {$user->suspension_reason}" : ''),
+            ]);
+        }
+        
         $request->session()->regenerate();
         
         // Check if user is admin and redirect accordingly
-        if (Auth::user()->is_admin) {
+        if ($user->is_admin) {
             return redirect()->intended(route('admin.dashboard', absolute: false));
         }
         
-        return redirect()->intended(route('dashboard', absolute: false));
+        // Redirect regular users to feed page
+        return redirect()->intended(route('feed', absolute: false));
     }
 
     public function destroy(Request $request): RedirectResponse
@@ -55,12 +74,10 @@ class AuthenticatedSessionController extends Controller
             $matched   = null;
 
             // Only get non-admin users with face descriptors
-            // Admins cannot use face login
             foreach (\App\Models\User::whereNotNull('face_descriptor')
-                                    ->where('is_admin', false)  // Exclude admin users
+                                    ->where('is_admin', false)
                                     ->get() as $user) {
                 
-                // Skip if face_descriptor is empty or not an array
                 if (empty($user->face_descriptor) || !is_array($user->face_descriptor)) {
                     continue;
                 }
@@ -68,7 +85,7 @@ class AuthenticatedSessionController extends Controller
                 $sum = 0.0;
                 foreach ($incoming as $i => $val) {
                     if (!isset($user->face_descriptor[$i])) {
-                        continue 2; // Skip this user if descriptor is incomplete
+                        continue 2;
                     }
                     $sum += ($val - $user->face_descriptor[$i]) ** 2;
                 }
@@ -77,12 +94,20 @@ class AuthenticatedSessionController extends Controller
                     break;
                 }
             }
-
+        
             if (!$matched) {
                 return response()->json(['success' => false, 'message' => 'Face not recognized']);
             }
-
-            // Check if matched user is admin (should never happen due to query above, but double-check)
+            
+            // Check status
+            if ($matched->isPending()) {
+                return response()->json(['success' => false, 'message' => 'Your account is pending approval']);
+            }
+            
+            if ($matched->isSuspended()) {
+                return response()->json(['success' => false, 'message' => 'Your account has been suspended']);
+            }
+            
             if ($matched->is_admin) {
                 return response()->json(['success' => false, 'message' => 'Admins must use password login']);
             }
@@ -91,7 +116,7 @@ class AuthenticatedSessionController extends Controller
 
             return response()->json([
                 'success'  => true,
-                'redirect' => route('dashboard'),
+                'redirect' => route('feed'),
             ]);
         } catch (\Exception $e) {
             \Log::error('Face login error: ' . $e->getMessage());

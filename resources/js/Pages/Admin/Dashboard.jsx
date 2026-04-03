@@ -1,7 +1,9 @@
 // resources/js/Pages/Admin/Dashboard.jsx
 
+import { useState, useEffect } from 'react';
 import { Head } from '@inertiajs/react';
 import AdminLayout from '@/Layouts/AdminLayout';
+import axios from 'axios';
 import { 
     Chart as ChartJS, 
     CategoryScale, 
@@ -12,8 +14,11 @@ import {
     Tooltip, 
     Legend,
     ArcElement,
+    Filler,
 } from 'chart.js';
 import { Line, Pie } from 'react-chartjs-2';
+import { db } from '@/config/firebase';
+import { ref, onValue } from 'firebase/database';
 
 ChartJS.register(
     CategoryScale,
@@ -23,10 +28,44 @@ ChartJS.register(
     Title,
     Tooltip,
     Legend,
-    ArcElement
+    ArcElement,
+    Filler
 );
 
-export default function Dashboard({ stats, userRegistrations, postsByDay, topUsers, postsByCategory, recentPosts }) {
+export default function Dashboard({ stats: initialStats, userRegistrations, postsByDay, topUsers, postsByCategory, recentPosts: initialRecentPosts }) {
+    const [stats, setStats] = useState(initialStats);
+    const [recentPosts, setRecentPosts] = useState(initialRecentPosts);
+
+    // Fetch fresh dashboard data from server
+    const fetchFreshData = async () => {
+        try {
+            const response = await axios.get('/api/admin/dashboard-stats');
+            if (response.data.recentPosts) {
+                setRecentPosts(response.data.recentPosts);
+            }
+        } catch (error) {
+            console.log('Error fetching fresh dashboard data:', error);
+        }
+    };
+
+    // Listen to Firebase for real-time changes
+    useEffect(() => {
+        const postsRef = ref(db, 'posts');
+        const unsubscribe = onValue(postsRef, (snapshot) => {
+            // When Firebase detects changes, fetch fresh dashboard data
+            fetchFreshData();
+        }, (error) => {
+            console.log('Firebase listener error:', error);
+        });
+
+        // Also poll server every 3 seconds
+        const pollInterval = setInterval(fetchFreshData, 3000);
+
+        return () => {
+            unsubscribe();
+            clearInterval(pollInterval);
+        };
+    }, []);
     // User registration chart data
     const userRegistrationData = {
         labels: userRegistrations.map(item => item.date),
@@ -248,6 +287,53 @@ export default function Dashboard({ stats, userRegistrations, postsByDay, topUse
                             </div>
                         </div>
                     )}
+
+                    {/* Real-time Posts Monitor */}
+                    <div className="mt-8 bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">
+                        <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-lg font-semibold text-gray-900">
+                                🔴 Real-time Posts Monitor
+                            </h3>
+                            <span className="text-xs bg-red-100 text-red-800 px-2 py-1 rounded-full animate-pulse">
+                                Live Now
+                            </span>
+                        </div>
+                        {recentPosts && recentPosts.length > 0 ? (
+                            <div className="space-y-3 max-h-96 overflow-y-auto">
+                                {recentPosts.map((post) => (
+                                    <div 
+                                        key={post.id} 
+                                        className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border-l-4 border-blue-500 hover:shadow-md transition-shadow"
+                                    >
+                                        <div className="flex items-start justify-between">
+                                            <div className="flex-1">
+                                                <div className="font-medium text-gray-900">{post.title || 'Untitled Post'}</div>
+                                                <div className="text-sm text-gray-600 mt-1">{post.user?.name || 'Unknown Author'}</div>
+                                                <div className="text-xs text-gray-500 mt-2">
+                                                    📅 {new Date(post.published_at).toLocaleDateString('en-US', {
+                                                        month: 'short',
+                                                        day: 'numeric',
+                                                        hour: '2-digit',
+                                                        minute: '2-digit',
+                                                    })}
+                                                </div>
+                                            </div>
+                                            <div className="ml-4">
+                                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                                    ✓ Published
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="text-center py-8 text-gray-500">
+                                <p className="mb-2">No posts detected yet</p>
+                                <p className="text-sm">Posts will appear here in real-time</p>
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
         </AdminLayout>

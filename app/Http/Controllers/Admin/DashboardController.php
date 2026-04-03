@@ -89,9 +89,14 @@ class DashboardController extends Controller
             ->map(fn($post) => [
                 'id' => $post->id,
                 'title' => $post->title,
-                'author' => $post->user->name,
+                'user' => [
+                    'id' => $post->user->id,
+                    'name' => $post->user->name,
+                    'email' => $post->user->email,
+                ],
                 'is_published' => $post->is_published,
-                'created_at' => $post->created_at->diffForHumans(),
+                'published_at' => $post->published_at,
+                'created_at' => $post->created_at,
             ]);
 
         return Inertia::render('Admin/Dashboard', [

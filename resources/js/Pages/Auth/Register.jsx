@@ -1,11 +1,6 @@
 import { useRef, useState, useEffect } from 'react';
 import { Head, Link, useForm } from '@inertiajs/react';
 import * as faceapi from 'face-api.js';
-import GuestLayout from '@/Layouts/GuestLayout';
-import InputLabel from '@/Components/InputLabel';
-import TextInput from '@/Components/TextInput';
-import InputError from '@/Components/InputError';
-import PrimaryButton from '@/Components/PrimaryButton';
 
 export default function Register() {
     const videoRef = useRef(null);
@@ -27,309 +22,412 @@ export default function Register() {
     useEffect(() => {
         if (!useFaceId || modelsReady) return;
         setStatus('Loading face models…');
-       const MODEL_URL = 'https://justadudewhohacks.github.io/face-api.js/models';
-    Promise.all([
-        faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
-        faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
-        faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
-    ]).then(() => {
+        const MODEL_URL = 'https://justadudewhohacks.github.io/face-api.js/models';
+        Promise.all([
+            faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
+            faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+            faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
+        ]).then(() => {
             setModelsReady(true);
             setStatus('Ready — click Open Camera.');
         });
     }, [useFaceId]);
 
     async function openCamera() {
-        if (!modelsReady) {
-            setStatus('Please wait — models still loading…');
-            return;
-        }
+        if (!modelsReady) { setStatus('Please wait — models still loading…'); return; }
         try {
-            setStatus('Requesting camera access…');
-            const stream = await navigator.mediaDevices.getUserMedia({ 
-                video: { width: { ideal: 320 }, height: { ideal: 240 } }
-            });
+            setStatus('Requesting camera…');
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 320 }, height: { ideal: 240 } } });
             setCameraOpen(true);
-
-            // Wait for next render cycle for video element to appear
             await new Promise(resolve => setTimeout(resolve, 50));
-
-            if (!videoRef.current) {
-                setStatus('Video element not found');
-                stream.getTracks().forEach(t => t.stop());
-                return;
-            }
-
+            if (!videoRef.current) { stream.getTracks().forEach(t => t.stop()); return; }
             videoRef.current.srcObject = stream;
-
-            // Wait for video to actually play
             await new Promise((resolve, reject) => {
-                const timeout = setTimeout(() => {
-                    reject(new Error('Video failed to load'));
-                }, 5000);
-
-                const onCanPlay = () => {
-                    clearTimeout(timeout);
-                    videoRef.current?.removeEventListener('canplay', onCanPlay);
-                    resolve();
-                };
-
+                const timeout = setTimeout(() => reject(new Error('Video timeout')), 5000);
+                const onCanPlay = () => { clearTimeout(timeout); videoRef.current?.removeEventListener('canplay', onCanPlay); resolve(); };
                 videoRef.current.addEventListener('canplay', onCanPlay);
-                videoRef.current.play().catch(e => {
-                    clearTimeout(timeout);
-                    reject(e);
-                });
+                videoRef.current.play().catch(e => { clearTimeout(timeout); reject(e); });
             });
-
             setStatus('Position your face and click Capture.');
-        } catch (err) {
-            setCameraOpen(false);
-            console.error('Camera error:', err);
-            setStatus(`Camera error: ${err.message}`);
-        }
+        } catch (err) { setCameraOpen(false); setStatus(`Camera error: ${err.message}`); }
     }
 
     async function captureFace() {
         setStatus('Detecting face…');
-
-        if (!videoRef.current) {
-            setStatus('Camera not ready — try again.');
-            return;
-        }
-
+        if (!videoRef.current || videoRef.current.readyState < 2) { setStatus('Video not ready — try again.'); return; }
         try {
-            // Ensure video is ready
-            if (videoRef.current.readyState < 2) {
-                setStatus('Video not ready — try again.');
-                return;
-            }
-
-            const detection = await faceapi
-                .detectSingleFace(videoRef.current)
-                .withFaceLandmarks()
-                .withFaceDescriptor();
-
-            if (!detection) {
-                setStatus('No face detected — try again.');
-                return;
-            }
-
-            const descriptor = Array.from(detection.descriptor);
-            setData('face_descriptor', descriptor);
+            const detection = await faceapi.detectSingleFace(videoRef.current).withFaceLandmarks().withFaceDescriptor();
+            if (!detection) { setStatus('No face detected — try again.'); return; }
+            setData('face_descriptor', Array.from(detection.descriptor));
             setCaptured(true);
-            setStatus('Face captured successfully!');
-
-            if (videoRef.current && videoRef.current.srcObject) {
-                videoRef.current.srcObject.getTracks().forEach(t => t.stop());
-                videoRef.current.srcObject = null;
-            }
+            setStatus('Face captured!');
+            if (videoRef.current?.srcObject) { videoRef.current.srcObject.getTracks().forEach(t => t.stop()); videoRef.current.srcObject = null; }
             setCameraOpen(false);
-
-        } catch (err) {
-            console.error('Capture error:', err);
-            setStatus('Capture failed — try again.');
-        }
+        } catch (err) { setStatus('Capture failed — try again.'); }
     }
 
     function submit(e) {
         e.preventDefault();
-        
-        // Log what we're sending
-        console.log('Submitting registration form with data:', {
-            name: data.name,
-            email: data.email,
-            password: data.password ? '***' : undefined,
-            password_confirmation: data.password_confirmation ? '***' : undefined,
-            face_descriptor: data.face_descriptor ? `Array of ${data.face_descriptor.length} values` : null,
-        });
-        
-        // Add loading feedback
-        setStatus('Creating account...');
-        
-        post(route('register'), {
-            onSuccess: () => {
-                setStatus('Registration successful! Redirecting...');
-                console.log('Registration successful');
-            },
-            onError: (errors) => {
-                console.error('Registration errors:', errors);
-                const errorMessages = Object.values(errors).flat().join(', ');
-                setStatus(`Registration failed: ${errorMessages}`);
-            },
-            onFinish: () => {
-                // Form processing is complete, but don't clear status
-            },
-        });
+        post(route('register'));
     }
 
     return (
-        <GuestLayout>
-            <Head title="Register" />
-            <form onSubmit={submit}>
+        <>
+            <Head title="Create account" />
+            <style>{`
+                @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600&family=DM+Sans:wght@300;400;500&display=swap');
+                * { box-sizing: border-box; margin: 0; padding: 0; }
+                body { background: #f7f5f0; }
+                .reg-wrap {
+                    min-height: 100vh;
+                    display: grid;
+                    grid-template-columns: 1fr 1fr;
+                    font-family: 'DM Sans', sans-serif;
+                }
+                @media (max-width: 768px) {
+                    .reg-wrap { grid-template-columns: 1fr; }
+                    .reg-left { display: none; }
+                }
+                .reg-left {
+                    background: #1a1a18;
+                    display: flex;
+                    flex-direction: column;
+                    justify-content: space-between;
+                    padding: 48px;
+                    position: relative;
+                    overflow: hidden;
+                }
+                .reg-left::before {
+                    content: '';
+                    position: absolute;
+                    top: -80px; right: -80px;
+                    width: 320px; height: 320px;
+                    border-radius: 50%;
+                    background: #c8a96e22;
+                    pointer-events: none;
+                }
+                .reg-left-brand {
+                    font-family: 'Playfair Display', serif;
+                    font-size: 22px;
+                    color: #c8a96e;
+                    letter-spacing: 0.02em;
+                }
+                .reg-left-quote {
+                    font-family: 'Playfair Display', serif;
+                    font-size: 36px;
+                    line-height: 1.3;
+                    color: #f0ece4;
+                    font-weight: 400;
+                }
+                .reg-left-quote em { color: #c8a96e; font-style: normal; }
+                .reg-left-sub {
+                    font-size: 14px;
+                    color: #6b6b65;
+                    line-height: 1.6;
+                }
+                .reg-right {
+                    background: #f7f5f0;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    padding: 48px 40px;
+                }
+                .reg-form-wrap {
+                    width: 100%;
+                    max-width: 420px;
+                }
+                .reg-heading {
+                    font-family: 'Playfair Display', serif;
+                    font-size: 30px;
+                    color: #1a1a18;
+                    font-weight: 600;
+                    margin-bottom: 6px;
+                }
+                .reg-sub {
+                    font-size: 14px;
+                    color: #6b6b65;
+                    margin-bottom: 32px;
+                }
+                .reg-sub a {
+                    color: #c8a96e;
+                    text-decoration: none;
+                    font-weight: 500;
+                }
+                .field { margin-bottom: 18px; }
+                .field label {
+                    display: block;
+                    font-size: 12px;
+                    font-weight: 500;
+                    letter-spacing: 0.08em;
+                    text-transform: uppercase;
+                    color: #4a4a45;
+                    margin-bottom: 6px;
+                }
+                .field input {
+                    width: 100%;
+                    padding: 12px 16px;
+                    background: #fff;
+                    border: 1.5px solid #e2ddd6;
+                    border-radius: 8px;
+                    font-family: 'DM Sans', sans-serif;
+                    font-size: 15px;
+                    color: #1a1a18;
+                    transition: border-color 0.2s;
+                    outline: none;
+                }
+                .field input:focus { border-color: #c8a96e; }
+                .field input::placeholder { color: #b0aca5; }
+                .field-error {
+                    font-size: 12px;
+                    color: #c0392b;
+                    margin-top: 4px;
+                }
+                .divider {
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                    margin: 24px 0;
+                }
+                .divider-line { flex: 1; height: 1px; background: #e2ddd6; }
+                .divider-text { font-size: 12px; color: #9e9a93; letter-spacing: 0.06em; text-transform: uppercase; }
+                .face-box {
+                    border: 1.5px dashed #d4cfc7;
+                    border-radius: 12px;
+                    padding: 20px;
+                    background: #faf9f6;
+                    margin-bottom: 20px;
+                }
+                .face-toggle {
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                    cursor: pointer;
+                    user-select: none;
+                }
+                .face-toggle input[type=checkbox] { display: none; }
+                .face-toggle-track {
+                    width: 36px; height: 20px;
+                    background: #d4cfc7;
+                    border-radius: 10px;
+                    position: relative;
+                    transition: background 0.2s;
+                    flex-shrink: 0;
+                }
+                .face-toggle-track.on { background: #c8a96e; }
+                .face-toggle-track::after {
+                    content: '';
+                    position: absolute;
+                    top: 3px; left: 3px;
+                    width: 14px; height: 14px;
+                    background: #fff;
+                    border-radius: 50%;
+                    transition: transform 0.2s;
+                }
+                .face-toggle-track.on::after { transform: translateX(16px); }
+                .face-toggle-label { font-size: 14px; font-weight: 500; color: #1a1a18; }
+                .face-toggle-sub { font-size: 12px; color: #9e9a93; margin-top: 2px; }
+                .face-status {
+                    margin-top: 14px;
+                    font-size: 13px;
+                    padding: 8px 12px;
+                    border-radius: 6px;
+                    background: #f0ece4;
+                    color: #6b6b65;
+                }
+                .face-status.success { background: #edf7ed; color: #2d6a2d; }
+                .face-status.error { background: #fdf0ef; color: #c0392b; }
+                video.face-video {
+                    width: 100%;
+                    border-radius: 8px;
+                    margin-top: 12px;
+                    border: 1.5px solid #e2ddd6;
+                }
+                .btn-row {
+                    display: flex;
+                    gap: 10px;
+                    margin-top: 12px;
+                }
+                .btn-camera {
+                    flex: 1;
+                    padding: 10px 16px;
+                    border: none;
+                    border-radius: 8px;
+                    font-family: 'DM Sans', sans-serif;
+                    font-size: 13px;
+                    font-weight: 500;
+                    cursor: pointer;
+                    transition: opacity 0.2s;
+                }
+                .btn-camera:hover { opacity: 0.85; }
+                .btn-open { background: #1a1a18; color: #fff; }
+                .btn-capture { background: #c8a96e; color: #fff; }
+                .face-success {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    margin-top: 14px;
+                    font-size: 13px;
+                    color: #2d6a2d;
+                    font-weight: 500;
+                }
+                .face-success::before {
+                    content: '✓';
+                    width: 20px; height: 20px;
+                    background: #2d6a2d;
+                    color: #fff;
+                    border-radius: 50%;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: 11px;
+                    flex-shrink: 0;
+                }
+                .btn-submit {
+                    width: 100%;
+                    padding: 14px;
+                    background: #1a1a18;
+                    color: #f7f5f0;
+                    border: none;
+                    border-radius: 8px;
+                    font-family: 'DM Sans', sans-serif;
+                    font-size: 15px;
+                    font-weight: 500;
+                    cursor: pointer;
+                    letter-spacing: 0.02em;
+                    transition: background 0.2s, transform 0.1s;
+                    margin-top: 8px;
+                }
+                .btn-submit:hover { background: #2d2d2a; }
+                .btn-submit:active { transform: scale(0.99); }
+                .btn-submit:disabled { opacity: 0.6; cursor: not-allowed; }
+                .global-errors {
+                    background: #fdf0ef;
+                    border: 1.5px solid #f5c6c2;
+                    border-radius: 8px;
+                    padding: 12px 16px;
+                    margin-bottom: 20px;
+                    font-size: 13px;
+                    color: #c0392b;
+                }
+            `}</style>
 
-                {/* Status messages */}
-                {processing && (
-                    <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                        <p className="text-sm text-blue-700">Creating your account...</p>
-                    </div>
-                )}
-                {status && !processing && (
-                    <div className={`mb-4 p-4 rounded-lg border ${
-                        status.includes('successful') 
-                            ? 'bg-green-50 border-green-200' 
-                            : status.includes('Camera error') || status.includes('failed')
-                            ? 'bg-red-50 border-red-200'
-                            : 'bg-gray-50 border-gray-200'
-                    }`}>
-                        <p className={`text-sm ${
-                            status.includes('successful')
-                                ? 'text-green-700'
-                                : status.includes('Camera error') || status.includes('failed')
-                                ? 'text-red-700'
-                                : 'text-gray-700'
-                        }`}>
-                            {status}
-                        </p>
-                    </div>
-                )}
-
-                {/* Show all validation errors */}
-                {Object.keys(errors).length > 0 && (
-                    <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
-                        <p className="text-sm font-semibold text-red-700 mb-2">Errors found:</p>
-                        <ul className="text-sm text-red-700 list-disc list-inside">
-                            {Object.entries(errors).map(([field, messages]) => (
-                                <li key={field}>{field}: {Array.isArray(messages) ? messages.join(', ') : messages}</li>
-                            ))}
-                        </ul>
-                    </div>
-                )}
-
-                {/* Name */}
-                <div>
-                    <InputLabel htmlFor="name" value="Name" />
-                    <TextInput
-                        id="name" name="name" value={data.name}
-                        className="mt-1 block w-full"
-                        onChange={e => setData('name', e.target.value)}
-                        required autoFocus
-                    />
-                    <InputError message={errors.name} className="mt-2" />
-                </div>
-
-                {/* Email */}
-                <div className="mt-4">
-                    <InputLabel htmlFor="email" value="Email" />
-                    <TextInput
-                        id="email" type="email" name="email" value={data.email}
-                        className="mt-1 block w-full"
-                        onChange={e => setData('email', e.target.value)}
-                        required
-                    />
-                    <InputError message={errors.email} className="mt-2" />
-                </div>
-
-                {/* Password */}
-                <div className="mt-4">
-                    <InputLabel htmlFor="password" value="Password" />
-                    <TextInput
-                        id="password" type="password" name="password" value={data.password}
-                        className="mt-1 block w-full"
-                        onChange={e => setData('password', e.target.value)}
-                        required autoComplete="new-password"
-                    />
-                    <InputError message={errors.password} className="mt-2" />
-                </div>
-
-                {/* Confirm Password */}
-                <div className="mt-4">
-                    <InputLabel htmlFor="password_confirmation" value="Confirm Password" />
-                    <TextInput
-                        id="password_confirmation" type="password"
-                        name="password_confirmation" value={data.password_confirmation}
-                        className="mt-1 block w-full"
-                        onChange={e => setData('password_confirmation', e.target.value)}
-                        required autoComplete="new-password"
-                    />
-                    <InputError message={errors.password_confirmation} className="mt-2" />
-                </div>
-
-                {/* Face ID section */}
-                <div className="mt-6 p-4 border border-gray-200 rounded-lg bg-gray-50">
-                    <label className="flex items-center gap-3 cursor-pointer">
-                        <input
-                            type="checkbox"
-                            checked={useFaceId}
-                            onChange={e => setUseFaceId(e.target.checked)}
-                            className="rounded border-gray-300"
-                        />
-                        <span className="text-sm font-medium text-gray-700">
-                            Enable Face ID login{' '}
-                            <span className="text-gray-400 font-normal">(optional)</span>
-                        </span>
-                    </label>
-                    <p className="text-xs text-gray-400 mt-1 ml-6">
-                        Lets you log in with your face instead of your password.
-                    </p>
-
-                    {useFaceId && (
-                        <div className="mt-4 space-y-3">
-
-                            {status && (
-                                <p className={`text-sm ${captured ? 'text-green-600' : 'text-gray-500'}`}>
-                                    {status}
-                                </p>
-                            )}
-
-                            {cameraOpen && (
-                              <video
-                                ref={videoRef}
-                                width={320}
-                                height={240}
-                                muted
-                                autoPlay
-                                playsInline
-                                className="rounded border border-gray-200"
-                              />
-                            )}
-                            {modelsReady && !cameraOpen && !captured && (
-                                <button
-                                    type="button"
-                                    onClick={openCamera}
-                                    className="px-4 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700"
-                                >
-                                    Open Camera
-                                </button>
-                            )}
-
-                            {cameraOpen && (
-                                <button
-                                    type="button"
-                                    onClick={captureFace}
-                                    className="px-4 py-2 bg-green-600 text-white text-sm rounded hover:bg-green-700"
-                                >
-                                    Capture Face
-                                </button>
-                            )}
-
-                            {captured && (
-                                <p className="text-green-600 text-sm font-medium">
-                                    ✓ Face saved — you can use Face ID after registering.
-                                </p>
-                            )}
+            <div className="reg-wrap">
+                {/* Left panel */}
+                <div className="reg-left">
+                    <div className="reg-left-brand">The Blog</div>
+                    <div>
+                        <div className="reg-left-quote">
+                            Share your <em>ideas</em> with the world — one story at a time.
                         </div>
-                    )}
+                    </div>
+                    <div className="reg-left-sub">
+                        Join thousands of writers and readers.<br />
+                        Your voice belongs here.
+                    </div>
                 </div>
 
-                <div className="flex items-center justify-end mt-4">
-                    <Link href={route('login')} className="underline text-sm text-gray-600 hover:text-gray-900">
-                        Already registered?
-                    </Link>
-                    <PrimaryButton className="ms-4" disabled={processing}>
-                        {processing ? 'Creating account...' : 'Register'}
-                    </PrimaryButton>
-                </div>
+                {/* Right panel */}
+                <div className="reg-right">
+                    <div className="reg-form-wrap">
+                        <h1 className="reg-heading">Create account</h1>
+                        <p className="reg-sub">
+                            Already a member?{' '}
+                            <Link href={route('login')}>Sign in</Link>
+                        </p>
 
-            </form>
-        </GuestLayout>
+                        {Object.keys(errors).length > 0 && (
+                            <div className="global-errors">
+                                {Object.values(errors).map((msg, i) => (
+                                    <div key={i}>{msg}</div>
+                                ))}
+                            </div>
+                        )}
+
+                        <form onSubmit={submit}>
+                            <div className="field">
+                                <label htmlFor="name">Full name</label>
+                                <input id="name" type="text" value={data.name} onChange={e => setData('name', e.target.value)} placeholder="Your Name" required autoFocus />
+                                {errors.name && <div className="field-error">{errors.name}</div>}
+                            </div>
+
+                            <div className="field">
+                                <label htmlFor="email">Email address</label>
+                                <input id="email" type="email" value={data.email} onChange={e => setData('email', e.target.value)} placeholder="you@example.com" required />
+                                {errors.email && <div className="field-error">{errors.email}</div>}
+                            </div>
+
+                            <div className="field">
+                                <label htmlFor="password">Password</label>
+                                <input id="password" type="password" value={data.password} onChange={e => setData('password', e.target.value)} placeholder="Min. 8 characters" required autoComplete="new-password" />
+                                {errors.password && <div className="field-error">{errors.password}</div>}
+                            </div>
+
+                            <div className="field">
+                                <label htmlFor="password_confirmation">Confirm password</label>
+                                <input id="password_confirmation" type="password" value={data.password_confirmation} onChange={e => setData('password_confirmation', e.target.value)} placeholder="Repeat your password" required autoComplete="new-password" />
+                            </div>
+
+                            <div className="divider">
+                                <div className="divider-line" />
+                                <span className="divider-text">Optional</span>
+                                <div className="divider-line" />
+                            </div>
+
+                            {/* Face ID */}
+                            <div className="face-box">
+                                <label className="face-toggle" onClick={() => setUseFaceId(v => !v)}>
+                                    <div className={`face-toggle-track ${useFaceId ? 'on' : ''}`} />
+                                    <div>
+                                        <div className="face-toggle-label">Enable Face ID login</div>
+                                        <div className="face-toggle-sub">Log in with your face instead of your password</div>
+                                    </div>
+                                </label>
+
+                                {useFaceId && (
+                                    <>
+                                        {status && !captured && (
+                                            <div className={`face-status ${status.includes('error') || status.includes('failed') ? 'error' : ''}`}>
+                                                {status}
+                                            </div>
+                                        )}
+
+                                        <video
+                                            ref={videoRef}
+                                            className="face-video"
+                                            style={{ display: cameraOpen ? 'block' : 'none' }}
+                                            muted autoPlay playsInline
+                                            width={320} height={240}
+                                        />
+
+                                        {captured ? (
+                                            <div className="face-success">
+                                                Face saved — you can use Face ID after registering
+                                            </div>
+                                        ) : (
+                                            <div className="btn-row">
+                                                {modelsReady && !cameraOpen && (
+                                                    <button type="button" className="btn-camera btn-open" onClick={openCamera}>
+                                                        Open Camera
+                                                    </button>
+                                                )}
+                                                {cameraOpen && (
+                                                    <button type="button" className="btn-camera btn-capture" onClick={captureFace}>
+                                                        Capture Face
+                                                    </button>
+                                                )}
+                                            </div>
+                                        )}
+                                    </>
+                                )}
+                            </div>
+
+                            <button type="submit" className="btn-submit" disabled={processing}>
+                                {processing ? 'Creating account…' : 'Create account'}
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </>
     );
 }
